@@ -221,9 +221,13 @@ sed -i "s@__KEYBOARD_LAYOUT__@$KEYBOARD_LAYOUT@g" "$PROJECT_DIR/build/alpine-con
 sed -i "s@__APP_NAME__@$APP_NAME@g" "$PROJECT_DIR/build/alpine-config.sh"
 sed -i "s@__APP_COMMAND__@$APP_COMMAND@g" "$PROJECT_DIR/build/alpine-config.sh"
 
-# Handle input method setup (escape special chars for sed)
-INPUT_SETUP_ESCAPED=$(echo "$INPUT_SETUP" | sed 's/[&/\]/\\&/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-sed -i "s@__INPUT_METHOD_SETUP__@$INPUT_SETUP_ESCAPED@g" "$PROJECT_DIR/build/alpine-config.sh"
+# Handle input method setup separately using a temp file (avoids sed escaping issues)
+echo "$INPUT_SETUP" > "$PROJECT_DIR/build/input_setup.tmp"
+# Use awk to replace the placeholder with file content
+awk '/__INPUT_METHOD_SETUP__/ {system("cat '"$PROJECT_DIR/build/input_setup.tmp"'"); next} 1' \
+    "$PROJECT_DIR/build/alpine-config.sh" > "$PROJECT_DIR/build/alpine-config.sh.tmp"
+mv "$PROJECT_DIR/build/alpine-config.sh.tmp" "$PROJECT_DIR/build/alpine-config.sh"
+rm -f "$PROJECT_DIR/build/input_setup.tmp"
 
 chmod +x "$PROJECT_DIR/build/alpine-config.sh"
 
