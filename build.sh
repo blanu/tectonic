@@ -238,17 +238,18 @@ echo ""
 # Ensure images directory exists
 mkdir -p "$PROJECT_DIR/images"
 
-# Change to build directory (alpine-make-vm-image expects script in current dir)
+# Change to build directory
 cd "$PROJECT_DIR/build"
 
+# Run alpine-make-vm-image with correct argument order
 "$PROJECT_DIR/alpine-make-vm-image" \
     --image-format raw \
     --image-size "$IMAGE_SIZE" \
     --serial-console \
     --packages "$ALL_PACKAGES" \
     --script-chroot \
-    ./alpine-config.sh \
-    "$PROJECT_DIR/images/$OUTPUT_NAME"
+    "$PROJECT_DIR/images/$OUTPUT_NAME" \
+    "$PROJECT_DIR/build/alpine-config.sh"
 
 # Cleanup
 rm -f "$PROJECT_DIR/build/alpine-config.sh"
