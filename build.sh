@@ -235,6 +235,10 @@ echo "Building Alpine Linux image..."
 echo "This may take several minutes..."
 echo ""
 
+# Ensure images directory exists
+mkdir -p "$PROJECT_DIR/images"
+
+# Change to build directory (alpine-make-vm-image expects script in current dir)
 cd "$PROJECT_DIR/build"
 
 "$PROJECT_DIR/alpine-make-vm-image" \
@@ -243,7 +247,7 @@ cd "$PROJECT_DIR/build"
     --serial-console \
     --packages "$ALL_PACKAGES" \
     --script-chroot \
-    alpine-config.sh \
+    ./alpine-config.sh \
     "$PROJECT_DIR/images/$OUTPUT_NAME"
 
 # Cleanup
