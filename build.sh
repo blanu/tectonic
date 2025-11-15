@@ -198,12 +198,20 @@ rc-update add savecache shutdown
 echo "=== Configuration complete ==="
 CONFIGEOF
 
-# Substitute variables in config script
-sed -i "s|__TIMEZONE__|$TIMEZONE|g" "$PROJECT_DIR/build/alpine-config.sh"
-sed -i "s|__LOCALE__|$LOCALE|g" "$PROJECT_DIR/build/alpine-config.sh"
-sed -i "s|__KEYBOARD_LAYOUT__|$KEYBOARD_LAYOUT|g" "$PROJECT_DIR/build/alpine-config.sh"
-sed -i "s|__APP_NAME__|$APP_NAME|g" "$PROJECT_DIR/build/alpine-config.sh"
-sed -i "s|__APP_COMMAND__|$APP_COMMAND|g" "$PROJECT_DIR/build/alpine-config.sh"
+# Substitute variables in config script (using @ as delimiter to avoid issues with / in commands)
+sed -i "s@__TIMEZONE__@$TIMEZONE@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__LOCALE__@$LOCALE@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__KEYBOARD_LAYOUT__@$KEYBOARD_LAYOUT@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__APP_NAME__@$APP_NAME@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__APP_COMMAND__@$APP_COMMAND@g" "$PROJECT_DIR/build/alpine-config.sh"
+
+# Handle input method setup separately (multiline variable)
+echo "$INPUT_SETUP" > "$PROJECT_DIR/build/input_setup.tmp"
+sed -i "/__INPUT_METHOD_SETUP__/r $PROJECT_DIR/build/input_setup.tmp" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "/__INPUT_METHOD_SETUP__/d" "$PROJECT_DIR/build/alpine-config.sh"
+rm -f "$PROJECT_DIR/build/input_setup.tmp"
+
+chmod +x "$PROJECT_DIR/build/alpine-config.sh"
 
 # Setup input method
 if [ "$INPUT_METHOD" = "ibus" ]; then
@@ -221,10 +229,6 @@ sleep 2'
 else
     INPUT_SETUP='# No input method configured'
 fi
-
-sed -i "s|__INPUT_METHOD_SETUP__|$INPUT_SETUP|g" "$PROJECT_DIR/build/alpine-config.sh"
-
-chmod +x "$PROJECT_DIR/build/alpine-config.sh"
 
 # Build the image
 echo "Building Alpine Linux image..."
