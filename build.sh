@@ -59,6 +59,7 @@ echo ""
 if [ -d "$PROJECT_DIR/scripts/vm-picker-src" ]; then
     echo "Building vm-picker..."
     cd "$PROJECT_DIR/scripts/vm-picker-src"
+    go mod tidy
     go build -o ../vm-picker .
     cd "$PROJECT_DIR"
     
