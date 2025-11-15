@@ -27,8 +27,6 @@ apt-get install -y \
     e2fsprogs \
     dosfstools \
     parted \
-    syslinux \
-    extlinux \
     python3 \
     python3-pip \
     golang-go
