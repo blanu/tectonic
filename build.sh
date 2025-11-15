@@ -183,7 +183,6 @@ rc-update add devfs sysinit
 rc-update add dmesg sysinit
 rc-update add mdev sysinit
 rc-update add hwdrivers sysinit
-rc-update add udev sysinit
 
 rc-update add bootmisc boot
 rc-update add hostname boot
