@@ -92,7 +92,7 @@ ALL_PACKAGES="$BASE_PACKAGES $PACKAGES"
 
 # Add input method packages
 if [ "$INPUT_METHOD" = "ibus" ]; then
-    ALL_PACKAGES="$ALL_PACKAGES ibus ibus-gtk ibus-gtk3 ibus-hangul"
+    ALL_PACKAGES="$ALL_PACKAGES ibus ibus-gtk3 ibus-hangul"
 elif [ "$INPUT_METHOD" = "fcitx" ]; then
     ALL_PACKAGES="$ALL_PACKAGES fcitx fcitx-hangul fcitx-configtool"
 fi
@@ -100,7 +100,7 @@ fi
 # Add font packages
 case "$FONTS" in
     *korean*|*all*)
-        ALL_PACKAGES="$ALL_PACKAGES font-noto-cjk font-nanum"
+        ALL_PACKAGES="$ALL_PACKAGES font-noto-cjk"
         ;;
 esac
 case "$FONTS" in
