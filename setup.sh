@@ -299,7 +299,7 @@ GOMAIN
 
 echo "Building vm-picker application..."
 cd scripts/vm-picker-src
-go mod download
+go mod tidy
 go build -o ../vm-picker .
 cd "$PROJECT_DIR"
 
