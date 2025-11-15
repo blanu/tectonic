@@ -117,6 +117,23 @@ esac
 echo "Installing packages: $ALL_PACKAGES"
 echo ""
 
+# Setup input method configuration text
+if [ "$INPUT_METHOD" = "ibus" ]; then
+    INPUT_SETUP='export GTK_IM_MODULE=ibus
+export XMODIFIERS=@im=ibus
+export QT_IM_MODULE=ibus
+ibus-daemon -drx &
+sleep 2'
+elif [ "$INPUT_METHOD" = "fcitx" ]; then
+    INPUT_SETUP='export GTK_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+export QT_IM_MODULE=fcitx
+fcitx &
+sleep 2'
+else
+    INPUT_SETUP='# No input method configured'
+fi
+
 # Create Alpine configuration script
 cat > "$PROJECT_DIR/build/alpine-config.sh" << 'CONFIGEOF'
 #!/bin/sh
@@ -204,30 +221,11 @@ sed -i "s@__KEYBOARD_LAYOUT__@$KEYBOARD_LAYOUT@g" "$PROJECT_DIR/build/alpine-con
 sed -i "s@__APP_NAME__@$APP_NAME@g" "$PROJECT_DIR/build/alpine-config.sh"
 sed -i "s@__APP_COMMAND__@$APP_COMMAND@g" "$PROJECT_DIR/build/alpine-config.sh"
 
-# Handle input method setup separately (multiline variable)
-echo "$INPUT_SETUP" > "$PROJECT_DIR/build/input_setup.tmp"
-sed -i "/__INPUT_METHOD_SETUP__/r $PROJECT_DIR/build/input_setup.tmp" "$PROJECT_DIR/build/alpine-config.sh"
-sed -i "/__INPUT_METHOD_SETUP__/d" "$PROJECT_DIR/build/alpine-config.sh"
-rm -f "$PROJECT_DIR/build/input_setup.tmp"
+# Handle input method setup (escape special chars for sed)
+INPUT_SETUP_ESCAPED=$(echo "$INPUT_SETUP" | sed 's/[&/\]/\\&/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+sed -i "s@__INPUT_METHOD_SETUP__@$INPUT_SETUP_ESCAPED@g" "$PROJECT_DIR/build/alpine-config.sh"
 
 chmod +x "$PROJECT_DIR/build/alpine-config.sh"
-
-# Setup input method
-if [ "$INPUT_METHOD" = "ibus" ]; then
-    INPUT_SETUP='export GTK_IM_MODULE=ibus
-export XMODIFIERS=@im=ibus
-export QT_IM_MODULE=ibus
-ibus-daemon -drx &
-sleep 2'
-elif [ "$INPUT_METHOD" = "fcitx" ]; then
-    INPUT_SETUP='export GTK_IM_MODULE=fcitx
-export XMODIFIERS=@im=fcitx
-export QT_IM_MODULE=fcitx
-fcitx &
-sleep 2'
-else
-    INPUT_SETUP='# No input method configured'
-fi
 
 # Build the image
 echo "Building Alpine Linux image..."
@@ -242,6 +240,7 @@ cd "$PROJECT_DIR/build"
 
 # Run alpine-make-vm-image with correct argument order
 "$PROJECT_DIR/alpine-make-vm-image" \
+    --boot-mode UEFI \
     --image-format raw \
     --image-size "$IMAGE_SIZE" \
     --serial-console \
