@@ -6,6 +6,7 @@ PROJECT_DIR="/opt/tectonic"
 OUTPUT_NAME="tectonic-$(date +%Y%m%d-%H%M%S).img"
 IMAGE_SIZE="8G"
 VM_IMAGES=()
+CONVERT_IMAGES=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -29,10 +30,11 @@ while [[ $# -gt 0 ]]; do
             echo "  -o, --output NAME    Output image filename (default: tectonic-TIMESTAMP.img)"
             echo "  -s, --size SIZE      Image size (default: 8G)"
             echo "  -v, --vm PATH        VM image to include (can be used multiple times)"
+            echo "                       Accepts both .qcow2 and .img files (.img will be converted)"
             echo "  -h, --help           Show this help message"
             echo ""
             echo "Example:"
-            echo "  $0 -v /path/to/vm1.qcow2 -v /path/to/vm2.qcow2 -o custom.img"
+            echo "  $0 -v /path/to/vm1.qcow2 -v /path/to/vm2.img -o custom.img"
             exit 0
             ;;
         *)
