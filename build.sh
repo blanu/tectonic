@@ -1,16 +1,20 @@
 #!/bin/bash
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="/opt/tectonic"
 OUTPUT_NAME="tectonic-$(date +%Y%m%d-%H%M%S).img"
 IMAGE_SIZE="8G"
 VM_IMAGES=()
 CONVERT_IMAGES=()
+CONFIG_FILE=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -c|--config)
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
         -o|--output)
             OUTPUT_NAME="$2"
             shift 2
@@ -19,15 +23,14 @@ while [[ $# -gt 0 ]]; do
             IMAGE_SIZE="$2"
             shift 2
             ;;
-        -v|--vm)
-            VM_IMAGES+=("$2")
-            shift 2
-            ;;
         -h|--help)
-            echo "Usage: $0 [OPTIONS]"
+            echo "Usage: $0 -c CONFIG [OPTIONS]"
             echo ""
-            echo "Options:"
-            echo "  -o, --output NAME    Output image filename (default: tectonic-TIMESTAMP.img)"
+            echo "Required:"
+            echo "  -c, --config FILE    Configuration file"
+            echo ""
+            echo "Optional:"
+            echo "  -o, --output NAME    Output filename (default: tectonic-TIMESTAMP.img)"
             echo "  -s, --size SIZE      Image size (default: 8G)"
             echo "  -v, --vm PATH        VM image to include (can be used multiple times)"
             echo "                       Accepts both .qcow2 and .img files (.img will be converted)"
@@ -35,11 +38,13 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Example:"
             echo "  $0 -v /path/to/vm1.qcow2 -v /path/to/vm2.img -o custom.img"
+            echo ""
+            echo "Example:"
+            echo "  $0 -c configs/ollama.conf -o ollama-boot.img -s 16G"
             exit 0
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Use -h or --help for usage information"
             exit 1
             ;;
     esac
@@ -51,128 +56,151 @@ if [ "$EUID" -ne 0 ]; then
    exit 1
 fi
 
-echo "=== Tectonic Image Builder ==="
+# Verify config file
+if [ -z "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file required (-c)"
+    exit 1
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# Source configuration with defaults
+APP_COMMAND=""
+APP_NAME="Application"
+PACKAGES=""
+LOCALE="en_US.UTF-8"
+TIMEZONE="UTC"
+KEYBOARD_LAYOUT="us"
+INPUT_METHOD=""
+FONTS=""
+
+source "$CONFIG_FILE"
+
+if [ -z "$APP_COMMAND" ]; then
+    echo "Error: APP_COMMAND not set in configuration"
+    exit 1
+fi
+
+echo "=== Tectonic Image Builder v2 ==="
 echo "Output: $PROJECT_DIR/images/$OUTPUT_NAME"
 echo "Size: $IMAGE_SIZE"
-echo "VM Images: ${#VM_IMAGES[@]}"
+echo "App: $APP_NAME"
+echo "Command: $APP_COMMAND"
+echo "Locale: $LOCALE"
+echo "Input Method: ${INPUT_METHOD:-none}"
 echo ""
 
-# Build vm-picker if source exists
-if [ -d "$PROJECT_DIR/scripts/vm-picker-src" ]; then
-    echo "Building vm-picker..."
-    cd "$PROJECT_DIR/scripts/vm-picker-src"
-    go mod tidy
-    go build -o ../vm-picker .
-    cd "$PROJECT_DIR"
-    
-    if [ ! -f "$PROJECT_DIR/scripts/vm-picker" ]; then
-        echo "Error: Failed to build vm-picker"
-        exit 1
-    fi
-    echo "vm-picker built successfully"
-    echo ""
+# Build package list
+BASE_PACKAGES="xorg-server xinit xterm rxvt-unicode font-noto"
+ALL_PACKAGES="$BASE_PACKAGES $PACKAGES"
+
+# Add input method packages
+if [ "$INPUT_METHOD" = "ibus" ]; then
+    ALL_PACKAGES="$ALL_PACKAGES ibus ibus-gtk3 ibus-hangul"
+elif [ "$INPUT_METHOD" = "fcitx" ]; then
+    ALL_PACKAGES="$ALL_PACKAGES fcitx fcitx-hangul fcitx-configtool"
 fi
 
-# Verify VM images exist
-for vm in "${VM_IMAGES[@]}"; do
-    if [ ! -f "$vm" ]; then
-        echo "Error: VM image not found: $vm"
-        exit 1
-    fi
-    echo "  - $(basename "$vm")"
-done
+# Add font packages
+case "$FONTS" in
+    *korean*|*all*)
+        ALL_PACKAGES="$ALL_PACKAGES font-noto-cjk"
+        ;;
+esac
+case "$FONTS" in
+    *chinese*|*all*)
+        ALL_PACKAGES="$ALL_PACKAGES font-wqy-zenhei"
+        ;;
+esac
+case "$FONTS" in
+    *japanese*|*all*)
+        ALL_PACKAGES="$ALL_PACKAGES font-noto-cjk"
+        ;;
+esac
 
-# Check if vm-picker exists
-if [ ! -f "$PROJECT_DIR/scripts/vm-picker" ]; then
-    echo ""
-    echo "Warning: vm-picker not found at $PROJECT_DIR/scripts/vm-picker"
-    echo "Creating a placeholder. Replace this with your actual VM picker application."
-    
-    cat > "$PROJECT_DIR/scripts/vm-picker" << 'EOF'
-#!/bin/sh
-echo "VM Picker Placeholder"
-echo "Replace this with your actual VM picker application"
+echo "Installing packages: $ALL_PACKAGES"
 echo ""
-echo "Available VMs:"
-ls -1 /opt/vms/
-EOF
-    chmod +x "$PROJECT_DIR/scripts/vm-picker"
+
+# Setup input method configuration text
+if [ "$INPUT_METHOD" = "ibus" ]; then
+    INPUT_SETUP='export GTK_IM_MODULE=ibus
+export XMODIFIERS=@im=ibus
+export QT_IM_MODULE=ibus
+ibus-daemon -drx &
+sleep 2'
+elif [ "$INPUT_METHOD" = "fcitx" ]; then
+    INPUT_SETUP='export GTK_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+export QT_IM_MODULE=fcitx
+fcitx &
+sleep 2'
+else
+    INPUT_SETUP='# No input method configured'
 fi
 
-# Create the configuration script
-echo ""
-echo "Generating Alpine configuration..."
-
+# Create Alpine configuration script
 cat > "$PROJECT_DIR/build/alpine-config.sh" << 'CONFIGEOF'
 #!/bin/sh
 set -e
 
-echo "=== Configuring Alpine Linux for Tectonic ==="
+echo "=== Configuring Tectonic Alpine Image ==="
 
-# Install base packages
-apk add --no-cache \
-    qemu-system-x86_64 \
-    qemu-img \
-    tmux \
-    bash \
-    ncurses \
-    ncurses-terminfo \
-    coreutils \
-    util-linux \
-    eudev
+# Set timezone
+ln -sf /usr/share/zoneinfo/__TIMEZONE__ /etc/localtime
 
-# Create necessary directories
-mkdir -p /opt/vms
-mkdir -p /usr/local/bin
-mkdir -p /etc/tectonic
+# Set locale
+cat > /etc/profile.d/locale.sh << 'LOCALEEOF'
+export LANG=__LOCALE__
+export LC_ALL=__LOCALE__
+LOCALEEOF
 
-# Copy VM picker application
-if [ -f /tmp/tectonic-build/vm-picker ]; then
-    cp /tmp/tectonic-build/vm-picker /usr/local/bin/
-    chmod +x /usr/local/bin/vm-picker
-fi
+# Configure keyboard
+cat > /etc/conf.d/loadkmap << 'KEYMAPEOF'
+KEYMAP="__KEYBOARD_LAYOUT__"
+KEYMAPEOF
 
-# Copy VM images
-if [ -d /tmp/tectonic-build/vms ]; then
-    cp /tmp/tectonic-build/vms/* /opt/vms/ 2>/dev/null || true
-fi
-
-# Create VM registry file
-cat > /etc/tectonic/vms.conf << 'EOF'
-# Tectonic VM Registry
-# Format: name|path|memory|description
-EOF
-
-# Auto-populate VM registry from available images
-for vm in /opt/vms/*; do
-    if [ -f "$vm" ]; then
-        vmname=$(basename "$vm" | sed 's/\.[^.]*$//')
-        echo "$vmname|$vm|2048|Imported VM" >> /etc/tectonic/vms.conf
-    fi
-done
-
-# Setup auto-login to root
+# Setup auto-login
 sed -i 's/^tty1::respawn:\/sbin\/getty 38400 tty1$/tty1::respawn:\/sbin\/getty -n -l \/usr\/local\/bin\/auto-login 38400 tty1/' /etc/inittab
 
-# Create auto-login script
 cat > /usr/local/bin/auto-login << 'LOGINEOF'
 #!/bin/sh
 exec /bin/login -f root
 LOGINEOF
 chmod +x /usr/local/bin/auto-login
 
-# Setup .profile to launch vm-picker on login
-cat > /root/.profile << 'PROFILEOF'
-# Launch vm-picker on login
-if [ -z "$TECTONIC_LAUNCHED" ]; then
-    export TECTONIC_LAUNCHED=1
-    if [ -x /usr/local/bin/vm-picker ]; then
-        exec /usr/local/bin/vm-picker
-    else
-        echo "Error: vm-picker not found"
-    fi
+# Create .xinitrc
+cat > /root/.xinitrc << 'XINIT'
+#!/bin/sh
+
+# Set up input method if configured
+__INPUT_METHOD_SETUP__
+
+# Launch fullscreen terminal with application
+exec xterm -maximized -fa 'Monospace' -fs 14 -e /usr/local/bin/app-launcher
+XINIT
+
+# Create application launcher
+cat > /usr/local/bin/app-launcher << 'APPLAUNCHER'
+#!/bin/sh
+echo "Starting __APP_NAME__..."
+echo ""
+__APP_COMMAND__
+echo ""
+echo "Application exited. Press Enter to restart or Ctrl+C to exit."
+read
+exec /usr/local/bin/app-launcher
+APPLAUNCHER
+chmod +x /usr/local/bin/app-launcher
+
+# Auto-startx on login
+cat > /root/.profile << 'PROFILE'
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec startx
 fi
-PROFILEOF
+PROFILE
 
 # Enable services
 rc-update add devfs sysinit
@@ -184,54 +212,60 @@ rc-update add bootmisc boot
 rc-update add hostname boot
 rc-update add sysctl boot
 rc-update add syslog boot
+rc-update add networking boot
 
 rc-update add mount-ro shutdown
 rc-update add killprocs shutdown
 rc-update add savecache shutdown
 
-echo "=== Alpine configuration complete ==="
+echo "=== Configuration complete ==="
 CONFIGEOF
+
+# Substitute variables in config script (using @ as delimiter to avoid issues with / in commands)
+sed -i "s@__TIMEZONE__@$TIMEZONE@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__LOCALE__@$LOCALE@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__KEYBOARD_LAYOUT__@$KEYBOARD_LAYOUT@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__APP_NAME__@$APP_NAME@g" "$PROJECT_DIR/build/alpine-config.sh"
+sed -i "s@__APP_COMMAND__@$APP_COMMAND@g" "$PROJECT_DIR/build/alpine-config.sh"
+
+# Handle input method setup separately using a temp file (avoids sed escaping issues)
+echo "$INPUT_SETUP" > "$PROJECT_DIR/build/input_setup.tmp"
+# Use awk to replace the placeholder with file content
+awk '/__INPUT_METHOD_SETUP__/ {system("cat '"$PROJECT_DIR/build/input_setup.tmp"'"); next} 1' \
+    "$PROJECT_DIR/build/alpine-config.sh" > "$PROJECT_DIR/build/alpine-config.sh.tmp"
+mv "$PROJECT_DIR/build/alpine-config.sh.tmp" "$PROJECT_DIR/build/alpine-config.sh"
+rm -f "$PROJECT_DIR/build/input_setup.tmp"
 
 chmod +x "$PROJECT_DIR/build/alpine-config.sh"
 
-# Create temporary build directory for assets
-mkdir -p "$PROJECT_DIR/build/tectonic-build/vms"
-
-# Copy vm-picker
-cp "$PROJECT_DIR/scripts/vm-picker" "$PROJECT_DIR/build/tectonic-build/"
-
-# Copy VM images
-for vm in "${VM_IMAGES[@]}"; do
-    echo "Copying $(basename "$vm")..."
-    cp "$vm" "$PROJECT_DIR/build/tectonic-build/vms/"
-done
-
 # Build the image
-echo ""
 echo "Building Alpine Linux image..."
 echo "This may take several minutes..."
 echo ""
 
+# Ensure images directory exists
+mkdir -p "$PROJECT_DIR/images"
+
+# Change to build directory
 cd "$PROJECT_DIR/build"
 
-"$PROJECT_DIR/scripts/alpine-make-vm-image" \
+# Run alpine-make-vm-image with correct argument order
+"$PROJECT_DIR/alpine-make-vm-image" \
+    --boot-mode UEFI \
     --image-format raw \
     --image-size "$IMAGE_SIZE" \
     --serial-console \
-    --packages "qemu-system-x86_64 qemu-img tmux bash ncurses coreutils util-linux eudev" \
+    --packages "$ALL_PACKAGES" \
     --script-chroot \
-    --fs-skel-dir "$PROJECT_DIR/build/tectonic-build" \
-    --fs-skel-chown root:root \
-    alpine-config.sh \
-    "$PROJECT_DIR/images/$OUTPUT_NAME"
+    "$PROJECT_DIR/images/$OUTPUT_NAME" \
+    "$PROJECT_DIR/build/alpine-config.sh"
 
 # Cleanup
-rm -rf "$PROJECT_DIR/build/tectonic-build"
 rm -f "$PROJECT_DIR/build/alpine-config.sh"
 
 echo ""
 echo "=== Build Complete ==="
-echo "Image created: $PROJECT_DIR/images/$OUTPUT_NAME"
+echo "Image: $PROJECT_DIR/images/$OUTPUT_NAME"
 echo ""
 echo "To write to USB:"
 echo "  sudo dd if=$PROJECT_DIR/images/$OUTPUT_NAME of=/dev/sdX bs=4M status=progress"
